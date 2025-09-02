@@ -15,8 +15,21 @@
             flex-direction: column;
         }
         canvas {
+            display: none; /* Hide the canvas initially */
             border: 2px solid #fff;
             background-color: #333;
+        }
+        #start-menu {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            border: 2px solid #fff;
+            position: absolute;
+            z-index: 10;
         }
         #game-over-screen {
             display: none;
@@ -42,6 +55,12 @@
     <h1>Enzyme Blast</h1>
     <canvas id="gameCanvas" width="800" height="600"></canvas>
     
+    <div id="start-menu">
+        <h2>Mission: Enzyme Blast</h2>
+        <p>The food is falling! You are a powerful enzyme in a human stomach. Shoot down the food to prevent it from damaging the stomach lining. Upgrade your abilities to survive all 20 waves!</p>
+        <button id="start-button">Start Mission</button>
+    </div>
+
     <div id="game-over-screen">
         <h2>Game Over!</h2>
         <p id="score-display">Your score: 0</p>
