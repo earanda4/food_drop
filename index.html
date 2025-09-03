@@ -2,6 +2,7 @@
 <html>
 <head>
     <title>Enzyme Blast</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body {
             background-color: #000;
@@ -14,13 +15,8 @@
             font-family: 'Courier New', monospace;
             flex-direction: column;
         }
-        canvas {
-            display: none; /* Hide the canvas initially */
-            border: 2px solid #fff;
-            background-color: #333;
-        }
-        #start-menu {
-            display: flex;
+        #start-menu, #game-over-screen, #upgrade-menu {
+            display: none;
             flex-direction: column;
             justify-content: center;
             align-items: center;
@@ -30,15 +26,15 @@
             border: 2px solid #fff;
             position: absolute;
             z-index: 10;
+            max-width: 90vw;
+            border-radius: 10px;
         }
-        #game-over-screen {
+        canvas {
             display: none;
-            text-align: center;
-            padding: 20px;
-            background-color: rgba(0, 0, 0, 0.7);
             border: 2px solid #fff;
-            position: absolute;
-            z-index: 10;
+            background-color: #333;
+            max-width: 90vw;
+            max-height: 90vh;
         }
         button {
             padding: 10px 20px;
@@ -48,16 +44,86 @@
             background-color: #008cba;
             color: white;
             border: none;
+            border-radius: 5px;
+            transition: transform 0.1s;
+        }
+        button:hover {
+            transform: scale(1.05);
+        }
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 20px;
+        }
+        h2 {
+            font-size: 2rem;
+            margin-top: 0;
+        }
+        .coins {
+            color: gold;
+            font-weight: bold;
+        }
+        .upgrade-option {
+            margin-bottom: 10px;
+            padding: 5px;
+            border: 1px solid #555;
+            border-radius: 5px;
+        }
+        #hud {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            z-index: 5;
+            text-align: center;
+            font-size: 1.25rem;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        #health-bar-container {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 20px;
+            background-color: brown;
+            z-index: 5;
+            display: none;
+        }
+        #health-bar {
+            height: 100%;
+            background-color: chocolate;
+            transition: width 0.3s;
+        }
+        @media (max-width: 600px) {
+            h1 {
+                font-size: 1.5rem;
+            }
+            h2 {
+                font-size: 1.25rem;
+            }
+            p, button {
+                font-size: 0.875rem;
+            }
         }
     </style>
 </head>
 <body>
     <h1>Enzyme Blast</h1>
-    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <canvas id="gameCanvas"></canvas>
+    <div id="hud">
+        <p>Wave: <span id="wave-display">1</span> / 20</p>
+        <p>Time Left: <span id="timer-display">20</span>s</p>
+    </div>
+    
+    <div id="health-bar-container">
+        <div id="health-bar"></div>
+    </div>
     
     <div id="start-menu">
         <h2>Mission: Enzyme Blast</h2>
-        <p>The food is falling! You are a powerful enzyme in a human stomach. Shoot down the food to prevent it from damaging the stomach lining. Upgrade your abilities to survive all 20 waves!</p>
+        <p>The food is falling! Shoot down the food to protect the stomach lining. Be careful, if the food gets to the bottom, it will cause damage. Upgrade your abilities to survive all 20 waves!</p>
         <button id="start-button">Start Mission</button>
     </div>
 
@@ -69,6 +135,537 @@
         <button id="upgrade-stomach">Upgrade Stomach Lining Health</button>
     </div>
 
-    <script src="game.js"></script>
+    <div id="upgrade-menu">
+        <h2>Wave Cleared!</h2>
+        <p>Current Wave: <span id="current-wave-display">0</span> / 20</p>
+        <p class="coins">Your Coins: <span id="coins-display">0</span></p>
+        <p>Choose your upgrade:</p>
+        <div id="upgrade-options-container">
+            <!-- Dynamic upgrade buttons will be added here -->
+        </div>
+        <button id="continue-button">Continue</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startMenu = document.getElementById('start-menu');
+        const startButton = document.getElementById('start-button');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const scoreDisplay = document.getElementById('score-display');
+        const upgradeDamageBtn = document.getElementById('upgrade-damage');
+        const upgradeStomachBtn = document.getElementById('upgrade-stomach');
+        const upgradeMenu = document.getElementById('upgrade-menu');
+        const coinsDisplay = document.getElementById('coins-display');
+        const currentWaveDisplay = document.getElementById('current-wave-display');
+        const upgradeOptionsContainer = document.getElementById('upgrade-options-container');
+        const continueButton = document.getElementById('continue-button');
+        const hud = document.getElementById('hud');
+        const healthBarContainer = document.getElementById('health-bar-container');
+        const healthBar = document.getElementById('health-bar');
+        const waveDisplay = document.getElementById('wave-display');
+        const timerDisplay = document.getElementById('timer-display');
+
+        // Game state variables
+        let player;
+        let foods = [];
+        let bullets = [];
+        let stomachLiningHealth = 200;
+        let score = 0;
+        let gameIsOver = false;
+        let permanentDamageUpgrade = 1;
+        let permanentStomachUpgrade = 1;
+        const ASPECT_RATIO = 800 / 600;
+
+        // Wave and Upgrade State
+        let currentWave = 0;
+        const TOTAL_WAVES = 20;
+        let waveTimer = 0;
+        let waveDuration = 20 * 60; // 20 seconds * 60 frames/sec
+        
+        // New stats
+        let projectileSize = 5;
+        let projectilePierce = 0;
+        let attackSpeed = 1; // Multiplier
+        let criticalStrikeChance = 0.0; // 0%
+        const criticalDamageMultiplier = 2;
+        let burnChance = 0.0;
+        let freezeChance = 0.0;
+
+        let keys = {
+            left: false,
+            right: false
+        };
+
+        const FOOD_LEVELS = [
+            { radius: 30, health: 150, coins: 50, bounceFactor: 1.1 },
+            { radius: 20, health: 100, coins: 30, bounceFactor: 0.9 },
+            { radius: 10, health: 50, coins: 10, bounceFactor: 0.7 }
+        ];
+
+        // Player (Enzyme)
+        function Enzyme() {
+            this.x = canvas.width / 2;
+            this.y = canvas.height - 50;
+            this.radius = 15;
+            this.speed = 5;
+            this.shootTimer = 0;
+            const baseShootInterval = 30; // Base interval for shooting
+            this.shootInterval = baseShootInterval / attackSpeed;
+        }
+
+        Enzyme.prototype.draw = function() {
+            ctx.fillStyle = 'lime';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+        };
+
+        Enzyme.prototype.update = function() {
+            // Move left if the left key is pressed
+            if (keys.left) {
+                this.x -= this.speed;
+            }
+            // Move right if the right key is pressed
+            if (keys.right) {
+                this.x += this.speed;
+            }
+
+            // Keep the enzyme within the canvas boundaries
+            if (this.x - this.radius < 0) {
+                this.x = this.radius;
+            }
+            if (this.x + this.radius > canvas.width) {
+                this.x = canvas.width - this.radius;
+            }
+        };
+
+        // Food (Enemy)
+        function Food(level, x = null, y = null, vx = null, vy = null) {
+            const data = FOOD_LEVELS[level];
+            this.level = level;
+            this.radius = data.radius;
+            this.health = data.health;
+            this.coins = data.coins;
+            this.bounceFactor = data.bounceFactor;
+            
+            this.x = x !== null ? x : Math.random() * (canvas.width - this.radius * 2) + this.radius;
+            this.y = y !== null ? y : -this.radius;
+            this.vx = vx !== null ? vx : (Math.random() - 0.5) * 2; // Random initial horizontal speed
+            this.vy = vy !== null ? vy : Math.random() * 2 + 1; // Random initial downward speed
+
+            // New effect properties
+            this.isFrozen = false;
+            this.freezeTimer = 0;
+            this.isBurning = false;
+            this.burnTimer = 0;
+            this.burnDamagePerTick = 0.5;
+        }
+
+        Food.prototype.draw = function() {
+            ctx.fillStyle = 'orange';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Draw health bar
+            ctx.fillStyle = 'red';
+            ctx.fillRect(this.x - this.radius, this.y - this.radius - 10, this.radius * 2, 5);
+            ctx.fillStyle = 'green';
+            ctx.fillRect(this.x - this.radius, this.y - this.radius - 10, (this.health / FOOD_LEVELS[this.level].health) * this.radius * 2, 5);
+
+            // Draw visual effects
+            if (this.isFrozen) {
+                ctx.fillStyle = 'rgba(173, 216, 230, 0.5)';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            if (this.isBurning) {
+                ctx.fillStyle = 'rgba(255, 69, 0, 0.5)';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        };
+        
+        Food.prototype.update = function() {
+            // Update position
+            this.x += this.vx;
+            this.y += this.vy;
+
+            // Bounce off walls
+            if (this.x + this.radius > canvas.width || this.x - this.radius < 0) {
+                this.vx *= -1;
+                // Add a small random factor to the bounce angle
+                this.vx += (Math.random() - 0.5) * 0.5;
+            }
+
+            // Bounce off floor
+            if (this.y + this.radius >= canvas.height) {
+                // Damage the stomach lining
+                stomachLiningHealth -= 10;
+                healthBar.style.width = `${(stomachLiningHealth / (200 * permanentStomachUpgrade)) * 100}%`;
+                
+                // If health is depleted, end the game
+                if (stomachLiningHealth <= 0) {
+                    endGame();
+                }
+
+                // Bounce with a factor based on size
+                this.vy *= -this.bounceFactor;
+                this.vy += (Math.random() - 0.5) * 1;
+                this.y = canvas.height - this.radius;
+            }
+             // Bounce off ceiling
+            if (this.y - this.radius <= 0) {
+                this.vy *= -1;
+                this.y = this.radius;
+            }
+             // Apply gravity
+            this.vy += 0.1;
+
+            // Apply burn effect
+            if (this.isBurning) {
+                this.health -= this.burnDamagePerTick;
+                this.burnTimer--;
+                if (this.burnTimer <= 0) {
+                    this.isBurning = false;
+                }
+            }
+            
+            // Apply freeze effect
+            if (this.isFrozen) {
+                this.vx *= 0.95;
+                this.vy *= 0.95;
+                this.freezeTimer--;
+                if (this.freezeTimer <= 0) {
+                    this.isFrozen = false;
+                }
+            }
+        };
+
+        // Bullet
+        function Bullet(x, y) {
+            this.x = x;
+            this.y = y;
+            this.radius = projectileSize;
+            this.speed = 8;
+            this.pierce = projectilePierce;
+            
+            // Calculate base damage
+            let damage = 10 * permanentDamageUpgrade;
+            
+            // Check for critical strike
+            if (Math.random() < criticalStrikeChance) {
+                damage *= criticalDamageMultiplier;
+            }
+            this.damage = damage;
+            
+            // Check for status effects
+            this.burnChance = burnChance;
+            this.freezeChance = freezeChance;
+        }
+
+        Bullet.prototype.draw = function() {
+            ctx.fillStyle = 'yellow';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+        };
+
+        // Game Loop
+        function gameLoop() {
+            if (gameIsOver) return;
+
+            // Check for end of wave
+            if (foods.length === 0 && waveTimer >= waveDuration) {
+                endWave();
+                return;
+            }
+
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Update and draw player
+            player.update();
+            player.draw();
+
+            // Update and draw bullets
+            bullets.forEach((bullet, index) => {
+                bullet.y -= bullet.speed;
+                bullet.draw();
+                if (bullet.y < -bullet.radius) {
+                    bullets.splice(index, 1);
+                }
+            });
+
+            // Update and draw foods
+            foods.forEach((food, index) => {
+                food.update();
+                food.draw();
+            });
+
+            // Check for collisions
+            bullets.forEach((bullet, bulletIndex) => {
+                foods.forEach((food, foodIndex) => {
+                    // Circle-on-circle collision detection
+                    const dx = bullet.x - food.x;
+                    const dy = bullet.y - food.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < bullet.radius + food.radius) {
+                        
+                        // Apply damage
+                        food.health -= bullet.damage;
+                        
+                        // Apply status effects
+                        if (Math.random() < bullet.burnChance) {
+                            food.isBurning = true;
+                            food.burnTimer = 180; // 3 seconds at 60fps
+                        }
+                        if (Math.random() < bullet.freezeChance) {
+                            food.isFrozen = true;
+                            food.freezeTimer = 120; // 2 seconds at 60fps
+                        }
+
+                        // Handle bullet pierce
+                        if (bullet.pierce <= 0) {
+                             bullets.splice(bulletIndex, 1);
+                        } else {
+                            bullet.pierce--;
+                        }
+                        
+                        if (food.health <= 0) {
+                            score += food.coins;
+                            foods.splice(foodIndex, 1);
+                            
+                            // Spawn smaller foods
+                            if (food.level < FOOD_LEVELS.length - 1) {
+                                const newVx1 = -Math.random() * 2 - 1;
+                                const newVx2 = Math.random() * 2 + 1;
+                                const newVy = -Math.random() * 5 - 2;
+                                foods.push(new Food(food.level + 1, food.x, food.y, newVx1, newVy));
+                                foods.push(new Food(food.level + 1, food.x, food.y, newVx2, newVy));
+                            }
+                        }
+                    }
+                });
+            });
+            
+            // Remove any bullets that have been spliced
+            bullets = bullets.filter(bullet => bullet !== undefined);
+
+            // Automatic shooting
+            player.shootTimer++;
+            if (player.shootTimer >= player.shootInterval) {
+                bullets.push(new Bullet(player.x, player.y));
+                player.shootTimer = 0;
+            }
+            
+            // Update wave timer and display
+            waveTimer++;
+            const timeLeft = Math.ceil((waveDuration - waveTimer) / 60);
+            timerDisplay.textContent = timeLeft;
+            waveDisplay.textContent = currentWave;
+            
+            // Spawn initial food for the new wave
+            if (foods.length === 0 && waveTimer < 60) {
+                 foods.push(new Food(0));
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // End of wave logic
+        function endWave() {
+            gameIsOver = true;
+            hud.style.display = 'none';
+            healthBarContainer.style.display = 'none';
+            if (currentWave < TOTAL_WAVES) {
+                showUpgradeMenu();
+            } else {
+                endGame();
+            }
+        }
+
+        // Available upgrades
+        const upgrades = [
+            { id: 'size', name: 'Increase Projectile Size', description: '+5px', cost: 50, apply: () => { projectileSize += 5; } },
+            { id: 'pierce', name: 'Increase Projectile Pierce', description: '+1', cost: 75, apply: () => { projectilePierce++; } },
+            { id: 'speed', name: 'Increase Attack Speed', description: '+25%', cost: 100, apply: () => { attackSpeed += 0.25; } },
+            { id: 'crit', name: 'Increase Crit Chance', description: '+5%', cost: 125, apply: () => { criticalStrikeChance += 0.05; } },
+            { id: 'burn', name: 'Increase Burn Chance', description: '+5%', cost: 150, apply: () => { burnChance += 0.05; } },
+            { id: 'freeze', name: 'Increase Freeze Chance', description: '+5%', cost: 150, apply: () => { freezeChance += 0.05; } }
+        ];
+
+        // Function to randomly select upgrades
+        function getRandomUpgrades(count) {
+            const shuffled = [...upgrades].sort(() => 0.5 - Math.random());
+            return shuffled.slice(0, count);
+        }
+
+        // Show upgrade menu
+        function showUpgradeMenu() {
+            canvas.style.display = 'none';
+            upgradeMenu.style.display = 'flex';
+            coinsDisplay.textContent = score;
+            currentWaveDisplay.textContent = currentWave;
+            
+            // Clear previous options
+            upgradeOptionsContainer.innerHTML = '';
+
+            // Generate new options
+            const selectedUpgrades = getRandomUpgrades(3);
+            selectedUpgrades.forEach(upgrade => {
+                const button = document.createElement('button');
+                button.textContent = `${upgrade.name} (${upgrade.description}) - Cost: ${upgrade.cost}`;
+                button.addEventListener('click', () => {
+                    if (score >= upgrade.cost) {
+                        score -= upgrade.cost;
+                        upgrade.apply();
+                        startNextWave();
+                    }
+                });
+                upgradeOptionsContainer.appendChild(button);
+            });
+        }
+
+        // Game Over
+        function endGame() {
+            gameIsOver = true;
+            scoreDisplay.textContent = `Your score: ${score}`;
+            canvas.style.display = 'none';
+            gameOverScreen.style.display = 'flex';
+            healthBarContainer.style.display = 'none';
+        }
+
+        // Start the game
+        function startGame() {
+            startMenu.style.display = 'none';
+            gameOverScreen.style.display = 'none';
+            upgradeMenu.style.display = 'none';
+            hud.style.display = 'block';
+            healthBarContainer.style.display = 'block';
+            canvas.style.display = 'block';
+            gameIsOver = false;
+            player = new Enzyme();
+            foods = [];
+            bullets = [];
+            score = 0;
+            currentWave = 1;
+            waveDuration = 20 * 60;
+            waveTimer = 0;
+            stomachLiningHealth = 200 * permanentStomachUpgrade;
+            healthBar.style.width = '100%';
+            
+            // Initial food spawn
+            foods.push(new Food(0));
+
+            gameLoop();
+        }
+
+        // Start the next wave
+        function startNextWave() {
+            upgradeMenu.style.display = 'none';
+            canvas.style.display = 'block';
+            hud.style.display = 'block';
+            healthBarContainer.style.display = 'block';
+            gameIsOver = false;
+            foods = [];
+            bullets = [];
+            currentWave++;
+            waveDuration += 5 * 60;
+            waveTimer = 0;
+            player = new Enzyme(); // Re-initialize player to update shoot speed
+            
+            // Spawn initial food for the new wave
+            foods.push(new Food(0));
+
+            gameLoop();
+        }
+
+        // Handle upgrades (from Game Over screen)
+        upgradeDamageBtn.addEventListener('click', () => {
+            permanentDamageUpgrade++;
+            startGame();
+        });
+
+        upgradeStomachBtn.addEventListener('click', () => {
+            permanentStomachUpgrade++;
+            startGame();
+        });
+
+        // Handle user input
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a') {
+                keys.left = true;
+            } else if (e.key === 'ArrowRight' || e.key === 'd') {
+                keys.right = true;
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a') {
+                keys.left = false;
+            } else if (e.key === 'ArrowRight' || e.key === 'd') {
+                keys.right = false;
+            }
+        });
+
+        window.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (player) {
+                const touchX = e.touches[0].clientX - canvas.offsetLeft;
+                player.x = touchX - (player.radius / 2);
+            }
+        }, { passive: false });
+
+        window.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (player) {
+                const touchX = e.touches[0].clientX - canvas.offsetLeft;
+                player.x = touchX - (player.radius / 2);
+            }
+        }, { passive: false });
+
+
+        // Initial setup and responsive canvas resize
+        function resizeCanvas() {
+            let newWidth = window.innerWidth;
+            let newHeight = window.innerHeight;
+            
+            if (newWidth / newHeight > ASPECT_RATIO) {
+                canvas.height = newHeight;
+                canvas.width = newHeight * ASPECT_RATIO;
+            } else {
+                canvas.width = newWidth;
+                canvas.height = newWidth / ASPECT_RATIO;
+            }
+            
+            if (player) {
+                player.x = canvas.width / 2;
+                player.y = canvas.height - 50;
+            }
+        }
+
+        function initializeGame() {
+            resizeCanvas();
+            canvas.style.display = 'none';
+            gameOverScreen.style.display = 'none';
+            upgradeMenu.style.display = 'none';
+            hud.style.display = 'none';
+            healthBarContainer.style.display = 'none';
+            startMenu.style.display = 'flex';
+        }
+
+        startButton.addEventListener('click', () => {
+            startMenu.style.display = 'none';
+            startGame();
+        });
+
+        window.addEventListener('resize', resizeCanvas);
+        initializeGame();
+    </script>
 </body>
 </html>
